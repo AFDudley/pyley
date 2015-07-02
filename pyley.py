@@ -6,6 +6,7 @@ pyley Python client for an open-source graph database Cayley
 
 """
 import json
+
 import requests
 
 __title__ = 'pyley'
@@ -15,25 +16,147 @@ __license__ = 'MIT'
 __copyright__ = 'Copyright 2014 Ziya SARIKAYA @ziyasal'
 
 
+class NotAValidQuadError(Exception):
+    pass
+
+
 class CayleyResponse(object):
     def __init__(self, raw_response, result):
         self.r = raw_response
         self.result = result
 
 
+class CayleyQuad(object):
+    """
+    :type subject: str
+    :type predicate: str
+    :type object: str
+    :type label: str
+    """
+
+    def __init__(self, subject, predicate, object, label=None):
+        """
+        :type subject: str
+        :type predicate: str
+        :type object: str
+        :type label: str
+        """
+        self.subject = self._clean(subject)
+        self.predicate = self._clean(predicate)
+        self.object = self._clean(object)
+        self.label = self._clean(label)
+
+    @staticmethod
+    def _clean(obj):
+        """
+        :type obj: str
+        """
+        return obj.strip().replace(' ', '_').lower() if obj is not None else None
+
+    def to_dict(self):
+        r = {'subject': self.subject, 'predicate': self.predicate, 'object': self.object}
+        if self.label is not None:
+            r['label'] = self.label
+        return r
+
+    def to_json(self):
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, obj):
+        try:
+            return cls(**obj)
+        except TypeError:
+            raise NotAValidQuadError()
+
+    @classmethod
+    def from_json(cls, obj):
+        try:
+            return cls.from_dict(json.loads(obj))
+        except ValueError:
+            raise NotAValidQuadError()
+
+    def __eq__(self, other):
+        if not isinstance(other, CayleyQuad):
+            try:
+                other = CayleyQuad.from_dict(other)
+            except NotAValidQuadError:
+                try:
+                    other = CayleyQuad.from_json(other)
+                except NotAValidQuadError:
+                    return False
+        return (
+            self.subject == other.subject and
+            self.predicate == other.predicate and
+            self.object == other.object and
+            self.label == other.label
+        )
+
+    def __hash__(self):
+        return (
+            3 * self.subject.__hash__() +
+            5 * self.predicate.__hash__() +
+            7 * self.object.__hash__() +
+            11 * self.label.__hash__()
+        )
+
+    def __str__(self):
+        return self.to_json()
+
+
+class CayleyQuads(object):
+    """
+    :type quads: set[CayleyQuad]
+    """
+
+    def __init__(self, quads=None):
+        """
+        :type quads: set[CayleyQuad]
+        """
+        self.quads = quads if quads is not None else []
+
+    def add_quad(self, quad):
+        self.quads.add(quad)
+
+    def add_quads(self, quads):
+        self.quads | set(quads)
+
+    def to_json(self):
+        return json.dumps([quad.to_dict() for quad in self.quads])
+
+    @classmethod
+    def from_list(cls, obj):
+        return cls(quads={CayleyQuad.from_dict(quad) for quad in obj})
+
+    @classmethod
+    def from_json(cls, obj):
+        return cls.from_list(json.loads(obj))
+
+    def __str__(self):
+        return self.to_json()
+
+
 class CayleyClient(object):
     def __init__(self, url="http://localhost:64210", version="v1"):
-        self.url = "%s/api/%s/query/gremlin" % (url, version)
+        self.query_url = "%s/api/%s/query/gremlin" % (url, version)
+        self.write_url = "%s/api/%s/write" % (url, version)
 
     def Send(self, query):
         if isinstance(query, str):
-            r = requests.post(self.url, data=query)
+            r = requests.post(self.query_url, data=query)
             return CayleyResponse(r, r.json())
         elif isinstance(query, _GremlinQuery):
-            r = requests.post(self.url, data=str(query))
+            r = requests.post(self.query_url, data=str(query))
             return CayleyResponse(r, r.json())
         else:
             raise Exception("Invalid query parameter in Send")
+
+    def Write(self, quads):
+        """
+        :type quads: CayleyQuads
+        """
+        r = requests.post(self.write_url, data=quads.to_json())
+        return r.content
 
 
 class _GremlinQuery(object):
