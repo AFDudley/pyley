@@ -23,17 +23,122 @@ class CayleyResponse(object):
 
 class CayleyClient(object):
     def __init__(self, url="http://localhost:64210", version="v1"):
-        self.url = "%s/api/%s/query/gremlin" % (url, version)
+        self.query_url = "{0:s}/api/{1:s}/query/gremlin".format(url, version)
+        self.write_url = "{0:s}/api/{1:s}/write".format(url, version)
 
     def Send(self, query):
         if isinstance(query, str):
-            r = requests.post(self.url, data=query)
+            r = requests.post(self.query_url, data=query)
             return CayleyResponse(r, r.json())
         elif isinstance(query, _GremlinQuery):
-            r = requests.post(self.url, data=str(query))
+            r = requests.post(self.query_url, data=str(query))
+            return CayleyResponse(r, r.json())
+        elif isinstance(query, Quads):
+            r = requests.post(self.write_url, data=query.json)
+            return CayleyResponse(r, r.json())
+        elif isinstance(query, Quad):
+            r = requests.post(self.write_url, data=json.dumps([query.json]))
             return CayleyResponse(r, r.json())
         else:
             raise Exception("Invalid query parameter in Send")
+
+
+class Quad(object):
+    """
+    :type label: str
+    :type object: str
+    :type predicate: str
+    :type subject: str
+    """
+    __slots__ = ('subject', 'predicate', 'object', 'label')
+
+    def __init__(self, subject, predicate, object_, label=None):
+        """
+        :type label: str
+        :type object_: str
+        :type predicate: str
+        :type subject: str
+        """
+        self.subject = subject
+        self.predicate = predicate
+        self.object = object_
+        self.label = label
+
+    @property
+    def dict(self):
+        data = {'subject': self.subject, 'predicate': self.predicate, 'object': self.object}
+        if self.label is not None:
+            data['label'] = self.label
+        return data
+
+    @property
+    def json(self):
+        return json.dumps(self.dict)
+
+    def __hash__(self):
+        return self.subject.__hash__() * 3 + self.predicate.__hash__() * 7 + self.object.__hash__() * 11
+
+    def __str__(self):
+        return '"{}" "{}" "{}"{} .'.format(
+            self.subject, self.predicate, self.object, ' "{}"'.format(self.label) if self.label is not None else ''
+        )
+
+    def __repr__(self):
+        return "Quad(subject={}, predicate={}, object_={}, label={})".format(
+            self.subject, self.predicate, self.object, self.label,
+        )
+
+    def __eq__(self, other):
+        """
+        :type other: Quad
+        """
+        return (
+            self.subject == other.subject and
+            self.predicate == other.predicate and
+            self.object == other.object
+        )
+
+    def __gt__(self, other):
+        """
+        :type other: Quad
+        """
+        return (
+            (self.subject > other.subject) or
+            (self.subject == other.subject and self.predicate > other.predicate) or
+            (self.subject == other.subject and self.predicate == other.predicate and self.object > other.object)
+        )
+
+    def __ge__(self, other):
+        return self.__eq__(other) or self.__gt__(other)
+
+    def __le__(self, other):
+        return not self.__gt__(other)
+
+    def __lt__(self, other):
+        return not self.__ge__(other)
+
+
+class Quads(object):
+    """
+    :type quads: set[Quad]
+    """
+
+    def __init__(self, *quads):
+        """
+        :type quads: list[Quad]
+        """
+        self.quads = set(quads)
+
+    @property
+    def list(self):
+        return [x.dict for x in self.quads]
+
+    @property
+    def json(self):
+        return json.dumps(self.list)
+
+    def __str__(self):
+        return '\n'.join(str(x) for x in sorted(self.quads))
 
 
 class _GremlinQuery(object):
@@ -51,10 +156,10 @@ class _GremlinQuery(object):
 
 
 class GraphObject(object):
-    def V(self):
-        return _Vertex("g.V()")
-
     def V(self, *node_ids):
+        if len(node_ids) == 0:
+            return _Vertex("g.V()")
+
         builder = []
         l = len(node_ids)
         for index, node_id in enumerate(node_ids):
@@ -68,14 +173,8 @@ class GraphObject(object):
     def M(self):
         return _Morphism("g.Morphism()")
 
-    def Vertex(self):
-        return self.V()
-
     def Vertex(self, *node_ids):
-        if len(node_ids) == 0:
-            return self.V()
-
-        return self.V(node_ids)
+        return self.V(*node_ids)
 
     def Morphism(self):
         return self.M()
