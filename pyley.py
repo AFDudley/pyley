@@ -45,19 +45,19 @@ class CayleyClient(object):
 
 class Quad(object):
     """
-    :type label: str
-    :type object: str
-    :type predicate: str
     :type subject: str
+    :type predicate: str
+    :type object: str
+    :type label: str
     """
     __slots__ = ('subject', 'predicate', 'object', 'label')
 
     def __init__(self, subject, predicate, object_, label=None):
         """
-        :type label: str
-        :type object_: str
-        :type predicate: str
         :type subject: str
+        :type predicate: str
+        :type object_: str
+        :type label: str
         """
         self.subject = subject
         self.predicate = predicate
@@ -136,6 +136,12 @@ class Quads(object):
     @property
     def json(self):
         return json.dumps(self.list)
+
+    def add(self, quad):
+        """
+        :type quad: Quad
+        """
+        self.quads.add(quad)
 
     def __str__(self):
         return '\n'.join(str(x) for x in sorted(self.quads))
